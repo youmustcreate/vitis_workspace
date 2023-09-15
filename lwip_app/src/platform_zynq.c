@@ -1,8 +1,6 @@
 /*
 * platform_zynq.c
-*
 * Zynq platform specific functions.
-*
 * 02/29/2012: UART initialization is removed. Timer initializations are
 * removed. All unnecessary include files and hash defines are removed.
 * 03/01/2013: Timer initialization is added back. Support for SI #692601 is
@@ -15,16 +13,17 @@
 * does not increment for sometime (proving no Rx traffic), the function resets
 * the Rx data path.
 *
-* </pre>
  */
 // 这段代码是平台相关初始化的注释,主要说明了以下内容:
 // 这是Zynq平台的特定函数。
+
 // 去除了之前UART初始化代码 和 定时器初始化代码。去除不必要的头文件和定义。
 // 又把定时器初始化代码加回来。在定时器回调函数中,增加了对SI #692601的支持。
 // SI #692601描述了EmacPs在大量RX流量下的一个硬件Bug:在重RX流量下,由于硬件Bug,有时RX通路会无响应。
 //  解决方法是定期检查RX通路的流量状态(通过读取统计寄存器),如果统计寄存器一段时间没有变化,说明RX无流量,就重置RX数据通路。
 // 因此增加了对此Bug的处理,通过定时器回调定期检查RX流量,如果停止就重置RX通路作为解决措施。
 // 总结一下,这段注释主要是说明代码做了哪些变更,特别是为了解决EmacPs的一个RX问题而增加的定时器定期检查机制。
+
 
 #ifdef __arm__
 

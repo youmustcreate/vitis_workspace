@@ -1,6 +1,7 @@
 #include "xil_exception.h"
 #include "xscugic.h"
 #include <stdio.h>
+#include <string.h>
 #include "xaxidma.h"
 #include "xparameters.h"
 #include "netif/xadapter.h"
@@ -8,8 +9,16 @@
 #include "platform_config.h"
 #include "xil_printf.h"
 #include "lwip/tcp.h"
+#include "lwip/err.h"
 #include "xil_cache.h"
+#include "xgpio.h"
 #include "sleep.h"
+#include "xuartps.h"
+
+
+
+#define UART_DEVICE_ID     XPAR_PS7_UART_0_DEVICE_ID      // 0
+#define UART_INT_IRQ_ID    XPAR_XUARTPS_0_INTR          
 
 
 #define DMA_DEV_ID          XPAR_AXIDMA_0_DEVICE_ID      // 0  基地址 4040 0000
@@ -21,12 +30,18 @@
 #define DDR_BASE_ADDR        XPAR_PS7_DDR_0_S_AXI_BASEADDR   //0x0010 0000    DDR内存控制器的基地址
 #define MEM_BASE_ADDR       (DDR_BASE_ADDR + 0x01000000)     //0x0110 0000    在DDR基地址后面偏移了0x01000000(16MB)。 MEM_BASE_ADDR就指向了DDR内存空间的16MB偏移位置。
 #define RX_BUFFER_BASE      (MEM_BASE_ADDR + 0x00300000)     //0x0140 0000
-#define MAX_PKT_LEN             100                          //  100个字节
+
+
+#define AXI_GPIO0_DEV_ID	    XPAR_AXI_GPIO_0_DEVICE_ID   // 0
+#define DATA_DIRECTION_MASK     0x00000000
+#define MAX_PKT_LEN             100      //  100个字节
+
+
 
 
 static void rx_intr_handler(void *callback);
 static int  setup_intr_system(XScuGic * int_ins_ptr, XAxiDma * axidma_ptr, u16 rx_intr_id);
-
+int Gpiopl_init(XGpio *InstancePtr, u32 DeviceId, u32 DirectionMask);
 
 static XAxiDma axidma;
 static XScuGic intc;
@@ -49,16 +64,11 @@ void lwip_init();   //  /* lwIP 中缺少的声明 */
 // #endif
 // #endif
 
-
-
-
-
-
-
 extern volatile int TcpFastTmrFlag;
 extern volatile int TcpSlowTmrFlag;
 static struct netif server_netif;
 struct netif *echo_netif;
+XGpio Gpio;
 
 
 
@@ -84,8 +94,11 @@ void print_ip_settings(ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw){
 int main(){
 	int status;
     // Xil_DCacheInvalidateRange((UINTPTR) rx_buffer_ptr, MAX_PKT_LEN);
+	Gpiopl_init(&Gpio, AXI_GPIO0_DEV_ID, DATA_DIRECTION_MASK);/*initial PL's AXI GPIO*/
 
-	static XAxiDma axidma;
+
+
+	static XAxiDma axidma;  // 指定变量的存储类别和生命周期  静态存储类别
     XAxiDma_Config *config;
     config = XAxiDma_LookupConfig(DMA_DEV_ID);
     if (!config) {
@@ -107,24 +120,6 @@ int main(){
 
 
 
-    uint8_t *rx_buffer_ptr;     // uint8_t类型的指针  指向接收缓冲区的起始地址
-    rx_buffer_ptr = (uint8_t *) RX_BUFFER_BASE;     // 定义好的接收缓冲区的 起始地址常量。  强制类型转换为uint8_t指针类型
-
-    // status = XAxiDma_SimpleTransfer(&axidma, (UINTPTR) rx_buffer_ptr , MAX_PKT_LEN, XAXIDMA_DEVICE_TO_DMA);
-    // if (status != XST_SUCCESS) {
-    //     return XST_FAILURE;
-    // }
-    // Xil_DCacheFlushRange((UINTPTR) rx_buffer_ptr, MAX_PKT_LEN);
-    // for(int i = 0; i < 100; i++) {
-    //     xil_printf("%02X ",* (rx_buffer_ptr + i ) );
-    // }
-    // xil_printf("\n");
-    // xil_printf("end\n");
-
-
-
-
-
 	ip_addr_t ipaddr, netmask, gw;
 	unsigned char mac_ethernet_address[] = { 0x00, 0x0a, 0x35, 0x00, 0x01, 0x02 };
 	echo_netif = &server_netif;
@@ -142,20 +137,11 @@ int main(){
 		return -1;
 	}
 
-
 	netif_set_default(echo_netif);
-
 	// platform_enable_interrupts();
-
 	netif_set_up(echo_netif);
-
-
-
 	print_ip_settings(&ipaddr, &netmask, &gw);
-
 	start_application();
-	
-    /* receive and process packets */
 	while (1) {
 		if (TcpFastTmrFlag) {
 			tcp_fasttmr();
@@ -166,7 +152,7 @@ int main(){
 			TcpSlowTmrFlag = 0;
 		}
 		xemacif_input(echo_netif);
-		transfer_data();
+		// transfer_data();
 	}
 	// cleanup_platform();
 	return 0;
@@ -174,17 +160,9 @@ int main(){
 
 
 
-
-
-
-//------------------------------------------------------------------------------------
-// 接收中断
-//定义了接收中断的处理函数rx_intr_handler
-//在中断处理函数中,会获取中断状态,acknowledge中断,检查是否有错误中断,如果有错误则重置DMA,检查是否有完成中断,如果有则设置rx_done标志。
 static void rx_intr_handler(void *callback){
     u32 irq_status;
     int timeout;
-    
     XAxiDma *axidma_inst = (XAxiDma *) callback;
 
     irq_status = XAxiDma_IntrGetIrq(axidma_inst, XAXIDMA_DEVICE_TO_DMA);
@@ -243,3 +221,104 @@ static int setup_intr_system(XScuGic * int_ins_ptr, XAxiDma * axidma_ptr, u16 rx
     return XST_SUCCESS;
 }
 
+
+
+
+err_t recv_callback(void *arg, struct tcp_pcb *tpcb,struct pbuf *p, err_t err){
+	if (!p) {
+		tcp_close(tpcb);
+		tcp_recv(tpcb, NULL);
+		return ERR_OK;
+	}
+
+	tcp_recved(tpcb, p->len);  // 通过tcp_recved()通知LWIP已收到的数据。
+
+	if (tcp_sndbuf(tpcb) > p->len) {
+		err = tcp_write(tpcb, p->payload, p->len, 1);  // 这里是 echo  TCP_WRITE_FLAG_COPY = 1
+        XGpio_DiscreteWrite(&Gpio, 1, 1); //Mask – is the value to be written to the discretes register.  离散寄存器
+        XGpio_DiscreteWrite(&Gpio, 1, 0); // 27 * 20ns 的 脉冲
+        // uint8_t *rx_buffer_ptr;     // uint8_t类型的指针  指向接收缓冲区的起始地址
+        // rx_buffer_ptr = (uint8_t *) RX_BUFFER_BASE;     // 定义好的接收缓冲区的 起始地址常量。  强制类型转换为uint8_t指针类型
+        // status = XAxiDma_SimpleTransfer(&axidma, (UINTPTR) rx_buffer_ptr , MAX_PKT_LEN, XAXIDMA_DEVICE_TO_DMA);
+        // Xil_DCacheFlushRange((UINTPTR) rx_buffer_ptr, MAX_PKT_LEN);
+
+        // status = 
+        // if (status != XST_SUCCESS) {
+        //     return XST_FAILURE;
+        // }
+        
+        // for(int i = 0; i < 100; i++) {
+        //    xil_printf("%02X ",* (rx_buffer_ptr + i ) );
+        // }
+	} else    
+		xil_printf("no space in tcp_sndbuf\n\r");  // 先判断发送缓冲区是否有足够空间,不够则打印提示。
+	pbuf_free(p);
+	return ERR_OK;
+}
+
+
+
+err_t accept_callback(void *arg, struct tcp_pcb *newpcb, err_t err){
+	static int connection = 1;
+	/* set the receive callback for this connection */
+	// 为新接受的连接newpcb设置receive回调函数为recv_callback。
+	tcp_recv(newpcb, recv_callback);
+	/* just use an integer number indicating the connection id as the callback argument */
+	//使用connection变量作为回调参数,通过tcp_arg()关联到newpcb上。
+	tcp_arg(newpcb, (void*)(UINTPTR)connection);
+	connection++;
+	return ERR_OK;
+}
+
+
+
+
+int start_application(){
+	struct tcp_pcb *pcb;
+	err_t err;
+	unsigned port = 7;
+
+	pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
+	if (!pcb) {
+		xil_printf("Error creating PCB. Out of Memory\n\r");
+		return -1;
+	}
+	err = tcp_bind(pcb, IP_ANY_TYPE, port);
+	if (err != ERR_OK) {
+		xil_printf("Unable to bind to port %d: err = %d\n\r", port, err);
+		return -2;
+	}
+	tcp_arg(pcb, NULL);
+	pcb = tcp_listen(pcb);
+	if (!pcb) {
+		xil_printf("Out of memory while tcp_listen\n\r");
+		return -3;
+	}
+	tcp_accept(pcb, accept_callback);  /* specify callback to use for incoming connections */  // 等待接收新的连接
+	xil_printf("TCP echo server started @ port %d\n\r", port);
+	return 0;
+}
+
+
+
+
+int Gpiopl_init(XGpio *InstancePtr, u32 DeviceId, u32 DirectionMask){
+	int Status;
+	Status = XGpio_Initialize(InstancePtr, DeviceId);
+	if (Status != XST_SUCCESS) {
+		xil_printf("AXI GPIO %d config failed!\r\n", DeviceId);
+		return XST_FAILURE;
+	}
+	XGpio_SetDataDirection(InstancePtr, 1, DirectionMask);
+	XGpio_DiscreteClear(InstancePtr, 1, 0);
+    return 1;
+}
+
+
+// int transfer_data() {
+// 	return 0;
+// }
+
+void print_app_header(){
+	xil_printf("\n\r\n\r-----lwIP TCP echo server ------\n\r");
+}

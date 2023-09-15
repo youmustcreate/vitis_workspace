@@ -1,30 +1,3 @@
-/*
- * Copyright (C) 2009 - 2019 Xilinx, Inc.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
- * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
- * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
- * OF SUCH DAMAGE.
- *
- */
 #if __MICROBLAZE__ || __PPC__
 #include "arch/cc.h"
 #include "platform.h"
@@ -47,14 +20,23 @@ void dhcp_fine_tmr();
 void dhcp_coarse_tmr();
 #endif
 
+
+// 初始化platform相关的设置,包括中断、缓存
+// 定义了一些平台相关的宏和全局变量,比如定时器中断标志位、DHCP定时器等
+// 定义了中断控制器intc,并初始化它。然后注册各中断服务例程,并使能中断。
+// 定义缓存的使能和禁用函数。
+// init_platform函数进行 平台初始化,包括使能缓存、初始化串口、初始化中断、设置以太网中断等。
+// cleanup_platform函数 在退出时禁用缓存。
+// 可以看到针对Microblaze和PowerPC有一些区分的编译预处理指令,进行了平台移植。
+// 整体来说,这段代码对不同平台进行了抽象和封装,完成了基本的平台初始化工作,为上层应用提供了统一的接口。
+
 volatile int TcpFastTmrFlag = 0;
 volatile int TcpSlowTmrFlag = 0;
 
 extern struct netif *echo_netif;
 
 void
-timer_callback()
-{
+timer_callback(){
 	static int DetectEthLinkStatus = 0;
 	/* we need to call tcp_fasttmr & tcp_slowtmr at intervals specified by lwIP.
 	 * It is not important that the timing is absoluetly accurate.
