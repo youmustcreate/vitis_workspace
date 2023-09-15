@@ -22,7 +22,7 @@
 
 
 #define DMA_DEV_ID          XPAR_AXIDMA_0_DEVICE_ID      // 0  基地址 4040 0000
-#define RX_INTR_ID          XPAR_FABRIC_AXIDMA_0_VEC_ID  //  61U
+#define RX_INTR_ID          XPAR_FABRIC_AXIDMA_0_VEC_ID  //  61U  是因为 IRQ_F2P[0] 对应id为61
 
 #define INTC_DEVICE_ID      XPAR_SCUGIC_SINGLE_DEVICE_ID  // 0
 #define RESET_TIMEOUT_COUNTER   10000    
@@ -67,8 +67,8 @@ void lwip_init();   //  /* lwIP 中缺少的声明 */
 extern volatile int TcpFastTmrFlag;
 extern volatile int TcpSlowTmrFlag;
 static struct netif server_netif;
-struct netif *echo_netif;
-XGpio Gpio;
+struct netif *echo_netif;  // 定义了一个指向 struct netif 类型的指针变量
+XGpio Gpio;   // 声明了一个变量 Gpio，该变量的类型是 XGpio
 
 
 
@@ -123,7 +123,7 @@ int main(){
 	ip_addr_t ipaddr, netmask, gw;
 	unsigned char mac_ethernet_address[] = { 0x00, 0x0a, 0x35, 0x00, 0x01, 0x02 };
 	echo_netif = &server_netif;
-	init_platform();
+	init_platform();            // 初始化 计时器 ：  XPS_SCU_TMR_INT_ID 29U /* SCU Private Timer interrupt */ 
 
 
 	IP4_ADDR(&ipaddr,  192, 168,   1, 10);
@@ -138,7 +138,9 @@ int main(){
 	}
 
 	netif_set_default(echo_netif);
-	// platform_enable_interrupts();
+
+	platform_enable_interrupts();   // 这个跟 Ethernet Link down / Ethernet Link up 有关系
+	
 	netif_set_up(echo_netif);
 	print_ip_settings(&ipaddr, &netmask, &gw);
 	start_application();
@@ -154,7 +156,7 @@ int main(){
 		xemacif_input(echo_netif);
 		// transfer_data();
 	}
-	// cleanup_platform();
+	cleanup_platform();
 	return 0;
 }
 

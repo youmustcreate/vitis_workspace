@@ -1,19 +1,3 @@
-/*
-* platform_zynq.c
-* Zynq platform specific functions.
-* 02/29/2012: UART initialization is removed. Timer initializations are
-* removed. All unnecessary include files and hash defines are removed.
-* 03/01/2013: Timer initialization is added back. Support for SI #692601 is
-* added in the timer callback. The SI #692601 refers to the following issue.
-*
-* The EmacPs has a HW bug on the Rx path for heavy Rx traffic.
-* Under heavy Rx traffic because of the HW bug there are times when the Rx path
-* becomes unresponsive. The workaround for it is to check for the Rx path for
-* traffic (by reading the stats registers regularly). If the stats register
-* does not increment for sometime (proving no Rx traffic), the function resets
-* the Rx data path.
-*
- */
 // 这段代码是平台相关初始化的注释,主要说明了以下内容:
 // 这是Zynq平台的特定函数。
 
@@ -24,9 +8,6 @@
 // 因此增加了对此Bug的处理,通过定时器回调定期检查RX流量,如果停止就重置RX通路作为解决措施。
 // 总结一下,这段注释主要是说明代码做了哪些变更,特别是为了解决EmacPs的一个RX问题而增加的定时器定期检查机制。
 
-
-#ifdef __arm__
-
 #include "xparameters.h"
 #include "xparameters_ps.h"	/* defines XPAR values */
 #include "xil_cache.h"
@@ -36,6 +17,8 @@
 #include "platform.h"
 #include "platform_config.h"
 #include "netif/xadapter.h"
+
+
 #ifdef PLATFORM_ZYNQ
 #include "xscutimer.h"
 
@@ -52,67 +35,31 @@ void tcp_slowtmr(void);
 
 static XScuTimer TimerInstance;
 
-#ifndef USE_SOFTETH_ON_ZYNQ
 static int ResetRxCntr = 0;
-#endif
 
 extern struct netif *echo_netif;
 
 volatile int TcpFastTmrFlag = 0;
 volatile int TcpSlowTmrFlag = 0;
 
-#if LWIP_DHCP==1
-volatile int dhcp_timoutcntr = 24;
-void dhcp_fine_tmr();
-void dhcp_coarse_tmr();
-#endif
-
-void
-timer_callback(XScuTimer * TimerInstance){
+void timer_callback(XScuTimer * TimerInstance){
 	static int DetectEthLinkStatus = 0;
-	/* we need to call tcp_fasttmr & tcp_slowtmr at intervals specified by lwIP. It is not important that the timing is absoluetly accurate.
-	 */
+///*我们需要按照lwIP指定的时间间隔调用tcp_fasttmr和tcp_slowtmr。计时的绝对精确性不是很重要。*/
 	static int odd = 1;
-#if LWIP_DHCP==1
-    static int dhcp_timer = 0;
-#endif
 	DetectEthLinkStatus++;
 	 TcpFastTmrFlag = 1;
 
 	odd = !odd;
-#ifndef USE_SOFTETH_ON_ZYNQ
 	ResetRxCntr++;
-#endif
 	if (odd) {
-#if LWIP_DHCP==1
-		dhcp_timer++;
-		dhcp_timoutcntr--;
-#endif
 		TcpSlowTmrFlag = 1;
-#if LWIP_DHCP==1
-		dhcp_fine_tmr();
-		if (dhcp_timer >= 120) {
-			dhcp_coarse_tmr();
-			dhcp_timer = 0;
-		}
-#endif
 	}
 
-	/* For providing an SW alternative for the SI #692601. Under heavy
-	 * Rx traffic if at some point the Rx path becomes unresponsive, the
-	 * following API call will ensures a SW reset of the Rx path. The
-	 * API xemacpsif_resetrx_on_no_rxdata is called every 100 milliseconds.
-	 * This ensures that if the above HW bug is hit, in the worst case,
-	 * the Rx path cannot become unresponsive for more than 100
-	 * milliseconds.
-	 */
-#ifndef USE_SOFTETH_ON_ZYNQ
 	if (ResetRxCntr >= RESET_RX_CNTR_LIMIT) {
 		xemacpsif_resetrx_on_no_rxdata(echo_netif);
 		ResetRxCntr = 0;
 	}
-#endif
-	/* For detecting Ethernet phy link status periodically */
+	/* For detecting Ethernet phy linak status periodiclly */
 	if (DetectEthLinkStatus == ETH_LINK_DETECT_INTERVAL) {
 		eth_link_detect(echo_netif);
 		DetectEthLinkStatus = 0;
@@ -153,35 +100,21 @@ void platform_setup_timer(void){
 
 void platform_setup_interrupts(void){
 	Xil_ExceptionInit();
-
 	XScuGic_DeviceInitialize(INTC_DEVICE_ID);
-
-	/*
-	 * Connect the interrupt controller interrupt handler to the hardware
-	 * interrupt handling logic in the processor.
-	 */
-	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,
-			(Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,
-			(void *)INTC_DEVICE_ID);
-	/*
-	 * Connect the device driver handler that will be called when an
-	 * interrupt for the device occurs, the handler defined above performs
-	 * the specific interrupt processing for the device.
-	 */
-	XScuGic_RegisterHandler(INTC_BASE_ADDR, TIMER_IRPT_INTR,
-					(Xil_ExceptionHandler)timer_callback,
-					(void *)&TimerInstance);
-	/*
-	 * Enable the interrupt for scu timer.
-	 */
+	// 将中断控制器的中断处理程序连接到处理器中的硬件中断处理逻辑。
+	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,(Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,(void *)INTC_DEVICE_ID);
+	// 将设备的中断处理程序连接到设备驱动上, 当设备中断发生时将会调用这个处理程序。
+	// 上面定义的处理程序实现了针对该设备的特定中断处理逻辑。
+	XScuGic_RegisterHandler(INTC_BASE_ADDR, TIMER_IRPT_INTR,(Xil_ExceptionHandler)timer_callback,(void *)&TimerInstance);
 	XScuGic_EnableIntr(INTC_DIST_BASE_ADDR, TIMER_IRPT_INTR);
-
 	return;
 }
 
+
+
 void platform_enable_interrupts(){
 	/*
-	 * Enable non-critical exceptions.
+       启用非关键异常
 	 */
 	Xil_ExceptionEnableMask(XIL_EXCEPTION_IRQ);
 	XScuTimer_EnableInterrupt(&TimerInstance);
@@ -193,7 +126,6 @@ void platform_enable_interrupts(){
 void init_platform(){
 	platform_setup_timer();
 	platform_setup_interrupts();
-
 	return;
 }
 
@@ -202,5 +134,4 @@ void cleanup_platform(){
 	Xil_DCacheDisable();
 	return;
 }
-#endif
 #endif
