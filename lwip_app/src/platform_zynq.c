@@ -67,6 +67,16 @@ void timer_callback(XScuTimer * TimerInstance){
 	XScuTimer_ClearInterruptStatus(TimerInstance);
 }
 
+
+
+
+
+
+
+
+
+
+
 void platform_setup_timer(void){
 	int Status = XST_SUCCESS;
 	XScuTimer_Config *ConfigPtr;
@@ -76,8 +86,7 @@ void platform_setup_timer(void){
 	Status = XScuTimer_CfgInitialize(&TimerInstance, ConfigPtr,
 			ConfigPtr->BaseAddr);
 	if (Status != XST_SUCCESS) {
-		xil_printf("In %s: Scutimer Cfg initialization failed...\r\n",
-		__func__);
+		xil_printf("In %s: Scutimer Cfg initialization failed...\r\n",__func__);
 		return;
 	}
 
@@ -89,33 +98,49 @@ void platform_setup_timer(void){
 	}
 
 	XScuTimer_EnableAutoReload(&TimerInstance);
-	/*
-	 * Set for 250 milli seconds timeout.
-	 */
+    //设置为 250 毫秒的超时时间。
 	TimerLoadValue = XPAR_CPU_CORTEXA9_0_CPU_CLK_FREQ_HZ / 8;
 
 	XScuTimer_LoadTimer(&TimerInstance, TimerLoadValue);
 	return;
 }
 
-void platform_setup_interrupts(void){
-	Xil_ExceptionInit();
-	XScuGic_DeviceInitialize(INTC_DEVICE_ID);
-	// 将中断控制器的中断处理程序连接到处理器中的硬件中断处理逻辑。
+// void platform_setup_interrupts(void){
+// 	Xil_ExceptionInit();
+// 	XScuGic_DeviceInitialize(INTC_DEVICE_ID);
+// 	// 将中断控制器的中断处理程序连接到处理器中的硬件中断处理逻辑。
+// 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,(Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,(void *)INTC_DEVICE_ID);
+// 	// 将设备的中断处理程序连接到设备驱动上, 当设备中断发生时将会调用这个处理程序。
+// 	// 上面定义的处理程序实现了针对该设备的特定中断处理逻辑。
+// 	XScuGic_RegisterHandler(INTC_BASE_ADDR, TIMER_IRPT_INTR,(Xil_ExceptionHandler)timer_callback,(void *)&TimerInstance);
+// 	XScuGic_EnableIntr(INTC_DIST_BASE_ADDR, TIMER_IRPT_INTR);
+// 	return;
+// }
+
+
+void platform_setup_interrupts(XScuGic *intc){
+	XScuGic_Config *intc_cfg;
+	intc_cfg = XScuGic_LookupConfig(INTC_DEVICE_ID);
+    XScuGic_CfgInitialize(intc, intc_cfg,intc_cfg->CpuBaseAddress);	
 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,(Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,(void *)INTC_DEVICE_ID);
-	// 将设备的中断处理程序连接到设备驱动上, 当设备中断发生时将会调用这个处理程序。
-	// 上面定义的处理程序实现了针对该设备的特定中断处理逻辑。
-	XScuGic_RegisterHandler(INTC_BASE_ADDR, TIMER_IRPT_INTR,(Xil_ExceptionHandler)timer_callback,(void *)&TimerInstance);
-	XScuGic_EnableIntr(INTC_DIST_BASE_ADDR, TIMER_IRPT_INTR);
+	Xil_ExceptionEnable();
+	XScuGic_Connect(intc, TIMER_IRPT_INTR, (Xil_ExceptionHandler) timer_callback,(void *) &TimerInstance);
+	XScuGic_Enable(intc, TIMER_IRPT_INTR);
 	return;
 }
 
 
 
+
+void init_platform(XScuGic *intc){
+	platform_setup_timer();
+	platform_setup_interrupts(intc);
+	return;
+}
+
+
 void platform_enable_interrupts(){
-	/*
-       启用非关键异常
-	 */
+    //    启用非关键异常
 	Xil_ExceptionEnableMask(XIL_EXCEPTION_IRQ);
 	XScuTimer_EnableInterrupt(&TimerInstance);
 	XScuTimer_Start(&TimerInstance);
@@ -123,11 +148,6 @@ void platform_enable_interrupts(){
 }
 
 
-void init_platform(){
-	platform_setup_timer();
-	platform_setup_interrupts();
-	return;
-}
 
 void cleanup_platform(){
 	Xil_ICacheDisable();

@@ -18,7 +18,7 @@
 
 
 #define UART_DEVICE_ID     XPAR_PS7_UART_0_DEVICE_ID      // 0
-#define UART_INT_IRQ_ID    XPAR_XUARTPS_0_INTR          
+#define UART_INT_IRQ_ID    XPAR_XUARTPS_0_INTR
 
 
 #define DMA_DEV_ID          XPAR_AXIDMA_0_DEVICE_ID      // 0  基地址 4040 0000
@@ -89,14 +89,83 @@ void print_ip_settings(ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw){
 
 
 
+XUartPs Uart_Ps;
+
+int uart_init(XUartPs* uart_ps){
+    int status;
+    XUartPs_Config *uart_cfg;
+
+    uart_cfg = XUartPs_LookupConfig(UART_DEVICE_ID);
+    if (NULL == uart_cfg)
+        return XST_FAILURE;
+    status = XUartPs_CfgInitialize(uart_ps, uart_cfg, uart_cfg->BaseAddress);
+    if (status != XST_SUCCESS)
+        return XST_FAILURE;
+
+    status = XUartPs_SelfTest(uart_ps);
+    if (status != XST_SUCCESS)
+        return XST_FAILURE;
+    XUartPs_SetOperMode(uart_ps, XUARTPS_OPER_MODE_NORMAL);
+    XUartPs_SetBaudRate(uart_ps,115200);
+    XUartPs_SetFifoThreshold(uart_ps, 1);
+    return XST_SUCCESS;
+}
+
+void uart_intr_handler(void *call_back_ref){
+    XUartPs *uart_instance_ptr = (XUartPs *) call_back_ref;
+    u32 rec_data = 0 ;   // 存储接收到的数据
+    u32 isr_status ;     // UART 中断状态
+
+    isr_status = XUartPs_ReadReg(uart_instance_ptr->Config.BaseAddress,XUARTPS_IMR_OFFSET);  // 中断屏蔽寄存器（IMR）
+    isr_status &= XUartPs_ReadReg(uart_instance_ptr->Config.BaseAddress,XUARTPS_ISR_OFFSET); // 中断状态寄存器（ISR）
+
+    if (isr_status & (u32)XUARTPS_IXR_RXOVR){   // 是否包含 接收溢出中断标志（XUARTPS_IXR_RXOVR）
+        rec_data = XUartPs_RecvByte(XPAR_PS7_UART_0_BASEADDR);  // 从 UART 接收一个字节的数据并将其存储
+        XUartPs_WriteReg(uart_instance_ptr->Config.BaseAddress,XUARTPS_ISR_OFFSET, XUARTPS_IXR_RXOVR) ;  // 清除接收溢出中断标志（XUARTPS_IXR_RXOVR）
+    }
+    XUartPs_SendByte(XPAR_PS7_UART_0_BASEADDR,rec_data);
+}
+
+int uart_intr_init(XScuGic *intc, XUartPs *uart_ps){
+    int status;
+    XScuGic_Config *intc_cfg;
+    intc_cfg = XScuGic_LookupConfig(INTC_DEVICE_ID);
+    if (NULL == intc_cfg)
+        return XST_FAILURE;
+
+    status = XScuGic_CfgInitialize(intc, intc_cfg,intc_cfg->CpuBaseAddress);
+    if (status != XST_SUCCESS)
+        return XST_FAILURE;
+
+    Xil_ExceptionInit();
+    Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_INT,(Xil_ExceptionHandler)XScuGic_InterruptHandler,(void *)intc);
+    Xil_ExceptionEnable();
+
+    XScuGic_Connect(intc, UART_INT_IRQ_ID, (Xil_ExceptionHandler) uart_intr_handler,(void *) uart_ps);
+    XUartPs_SetInterruptMask(uart_ps, XUARTPS_IXR_RXOVR);
+    XScuGic_Enable(intc, UART_INT_IRQ_ID);
+    return XST_SUCCESS;
+}
+
+
+
 
 
 int main(){
 	int status;
+	status = uart_init(&Uart_Ps);
+    if (status == XST_FAILURE) {
+        xil_printf("Uart Initial Failed\r\n");
+        return XST_FAILURE;
+    }
+    uart_intr_init(&intc, &Uart_Ps);
+
+
+
+
+
     // Xil_DCacheInvalidateRange((UINTPTR) rx_buffer_ptr, MAX_PKT_LEN);
 	Gpiopl_init(&Gpio, AXI_GPIO0_DEV_ID, DATA_DIRECTION_MASK);/*initial PL's AXI GPIO*/
-
-
 
 	static XAxiDma axidma;  // 指定变量的存储类别和生命周期  静态存储类别
     XAxiDma_Config *config;
@@ -123,7 +192,7 @@ int main(){
 	ip_addr_t ipaddr, netmask, gw;
 	unsigned char mac_ethernet_address[] = { 0x00, 0x0a, 0x35, 0x00, 0x01, 0x02 };
 	echo_netif = &server_netif;
-	init_platform();            // 初始化 计时器 ：  XPS_SCU_TMR_INT_ID 29U /* SCU Private Timer interrupt */ 
+	init_platform(&intc);            // 初始化 计时器 ：  XPS_SCU_TMR_INT_ID 29U /* SCU Private Timer interrupt */
 
 
 	IP4_ADDR(&ipaddr,  192, 168,   1, 10);
@@ -156,6 +225,7 @@ int main(){
 		xemacif_input(echo_netif);
 		// transfer_data();
 	}
+//	while(1);
 	cleanup_platform();
 	return 0;
 }
