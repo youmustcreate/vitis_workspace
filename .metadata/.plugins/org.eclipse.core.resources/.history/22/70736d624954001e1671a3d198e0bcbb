@@ -27,13 +27,12 @@
 #define RESET_TIMEOUT_COUNTER   10000    
 
 #define DDR_BASE_ADDR        XPAR_PS7_DDR_0_S_AXI_BASEADDR   //0x0010 0000    DDR内存控制器的基地址
-#define MEM_BASE_ADDR       (DDR_BASE_ADDR + 0x01000000)     //0x0110 0000 在DDR基地址后面偏移了0x01000000(16MB)。 MEM_BASE_ADDR就指向了DDR内存空间的16MB偏移位置。
+#define MEM_BASE_ADDR       (DDR_BASE_ADDR + 0x01000000)     //0x0110 0000    在DDR基地址后面偏移了0x01000000(16MB)。 MEM_BASE_ADDR就指向了DDR内存空间的16MB偏移位置。
 #define RX_BUFFER_BASE      (MEM_BASE_ADDR + 0x00300000)     //0x0140 0000
 
 
 #define AXI_GPIO0_DEV_ID	    XPAR_AXI_GPIO_0_DEVICE_ID   // 0
 #define DATA_DIRECTION_MASK     0x00000000
-
 #define MAX_PKT_LEN             100      //  100个字节
 
 
@@ -47,11 +46,13 @@ static XScuGic intc;
 volatile int rx_done;
 volatile int error;
 
+void print_app_header();
 int  start_application();
 void tcp_fasttmr(void);
 void tcp_slowtmr(void);
 
-void lwip_init();
+void lwip_init();   //  /* lwIP 中缺少的声明 */
+
 
 extern volatile int TcpFastTmrFlag;
 extern volatile int TcpSlowTmrFlag;
@@ -73,9 +74,7 @@ void print_ip_settings(ip_addr_t *ip, ip_addr_t *mask, ip_addr_t *gw){
 	print_ip("Gateway : ", gw);
 }
 
-void print_app_header(){
-	xil_printf("\n\r\n\r-----lwIP TCP echo server ------\n\r");
-}
+
 
 
 
@@ -112,6 +111,8 @@ void uart_intr_handler(void *call_back_ref){
         XUartPs_WriteReg(uart_instance_ptr->Config.BaseAddress,XUARTPS_ISR_OFFSET, XUARTPS_IXR_RXOVR) ;  // 清除接收溢出中断标志（XUARTPS_IXR_RXOVR）
     }
     XUartPs_SendByte(XPAR_PS7_UART_0_BASEADDR,rec_data);  // 这个函数使用设备发送一个字节。该函数在轮询模式下运行，会一直阻塞，直到数据被放入TX FIFO寄存器中。
+    int value = 255; // 一个示例的十六进制值
+    xil_printf("0x%x\r\n", value);
 }
 
 int uart_intr_init(XScuGic *intc, XUartPs *uart_ps){
@@ -139,9 +140,6 @@ int uart_intr_init(XScuGic *intc, XUartPs *uart_ps){
 
 
 
-
-
-
 int main(){
 	int status;
 	status = uart_init(&Uart_Ps);
@@ -150,6 +148,7 @@ int main(){
         return XST_FAILURE;
     }
     uart_intr_init(&intc, &Uart_Ps);
+
 
     // Xil_DCacheInvalidateRange((UINTPTR) rx_buffer_ptr, MAX_PKT_LEN);
 	Gpiopl_init(&Gpio, AXI_GPIO0_DEV_ID, DATA_DIRECTION_MASK);/*initial PL's AXI GPIO*/
@@ -243,6 +242,8 @@ static void rx_intr_handler(void *callback){
 }
 
 
+
+
 static int setup_intr_system(XScuGic * int_ins_ptr, XAxiDma * axidma_ptr, u16 rx_intr_id){
     int status;
     XScuGic_Config *intc_config;
@@ -264,7 +265,8 @@ static int setup_intr_system(XScuGic * int_ins_ptr, XAxiDma * axidma_ptr, u16 rx
     if (status != XST_SUCCESS) {
         return status;
     }
-    XScuGic_Enable(int_ins_ptr, rx_intr_id);  // 注册中断处理函数rx_intr_handler,并使能
+    // 注册中断处理函数rx_intr_handler,并使能
+    XScuGic_Enable(int_ins_ptr, rx_intr_id);
 
     // 启用来自硬件的中断
     Xil_ExceptionInit();
@@ -275,6 +277,7 @@ static int setup_intr_system(XScuGic * int_ins_ptr, XAxiDma * axidma_ptr, u16 rx
     XAxiDma_IntrEnable(&axidma, XAXIDMA_IRQ_ALL_MASK, XAXIDMA_DEVICE_TO_DMA);
     return XST_SUCCESS;
 }
+
 
 
 
@@ -314,6 +317,7 @@ err_t recv_callback(void *arg, struct tcp_pcb *tpcb,struct pbuf *p, err_t err){
 
 err_t accept_callback(void *arg, struct tcp_pcb *newpcb, err_t err){
 	static int connection = 1;
+	/* set the receive callback for this connection */
 	// 为新接受的连接newpcb设置receive回调函数为recv_callback。
 	tcp_recv(newpcb, recv_callback);
 	/* just use an integer number indicating the connection id as the callback argument */
@@ -369,4 +373,6 @@ int Gpiopl_init(XGpio *InstancePtr, u32 DeviceId, u32 DirectionMask){
 
 
 
-
+void print_app_header(){
+	xil_printf("\n\r\n\r-----lwIP TCP echo server ------\n\r");
+}

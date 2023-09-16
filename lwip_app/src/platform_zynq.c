@@ -44,35 +44,26 @@ volatile int TcpSlowTmrFlag = 0;
 
 void timer_callback(XScuTimer * TimerInstance){
 	static int DetectEthLinkStatus = 0;
-///*我们需要按照lwIP指定的时间间隔调用tcp_fasttmr和tcp_slowtmr。计时的绝对精确性不是很重要。*/
+///*需要按照lwIP指定的时间间隔调用tcp_fasttmr和tcp_slowtmr。计时的绝对精确性不是很重要。*/
 	static int odd = 1;
 	DetectEthLinkStatus++;
-	 TcpFastTmrFlag = 1;
-
+	TcpFastTmrFlag = 1;
 	odd = !odd;
 	ResetRxCntr++;
 	if (odd) {
 		TcpSlowTmrFlag = 1;
 	}
-
 	if (ResetRxCntr >= RESET_RX_CNTR_LIMIT) {
 		xemacpsif_resetrx_on_no_rxdata(echo_netif);
 		ResetRxCntr = 0;
 	}
-	/* For detecting Ethernet phy linak status periodiclly */
-	if (DetectEthLinkStatus == ETH_LINK_DETECT_INTERVAL) {
+	/* 用于定期检测以太网物理层链路状态 */
+	if (DetectEthLinkStatus == ETH_LINK_DETECT_INTERVAL) {   // 4
 		eth_link_detect(echo_netif);
 		DetectEthLinkStatus = 0;
 	}
 	XScuTimer_ClearInterruptStatus(TimerInstance);
 }
-
-
-
-
-
-
-
 
 
 
@@ -119,12 +110,23 @@ void platform_setup_timer(void){
 
 
 void platform_setup_interrupts(XScuGic *intc){
+	int status;
 	XScuGic_Config *intc_cfg;
 	intc_cfg = XScuGic_LookupConfig(INTC_DEVICE_ID);
-    XScuGic_CfgInitialize(intc, intc_cfg,intc_cfg->CpuBaseAddress);	
+	if (NULL == intc_cfg) {
+        return XST_FAILURE;
+    }
+    status = XScuGic_CfgInitialize(intc, intc_cfg,intc_cfg->CpuBaseAddress);	
+	if (status != XST_SUCCESS) {
+        return XST_FAILURE;
+    }
+
 	Xil_ExceptionRegisterHandler(XIL_EXCEPTION_ID_IRQ_INT,(Xil_ExceptionHandler)XScuGic_DeviceInterruptHandler,(void *)INTC_DEVICE_ID);
 	Xil_ExceptionEnable();
-	XScuGic_Connect(intc, TIMER_IRPT_INTR, (Xil_ExceptionHandler) timer_callback,(void *) &TimerInstance);
+	status = XScuGic_Connect(intc, TIMER_IRPT_INTR, (Xil_ExceptionHandler) timer_callback,(void *) &TimerInstance);
+	if (status != XST_SUCCESS) {
+        return XST_FAILURE;
+    }
 	XScuGic_Enable(intc, TIMER_IRPT_INTR);
 	return;
 }
@@ -139,8 +141,7 @@ void init_platform(XScuGic *intc){
 }
 
 
-void platform_enable_interrupts(){
-    //    启用非关键异常
+void platform_enable_interrupts(){ //    启用非关键异常
 	Xil_ExceptionEnableMask(XIL_EXCEPTION_IRQ);
 	XScuTimer_EnableInterrupt(&TimerInstance);
 	XScuTimer_Start(&TimerInstance);
